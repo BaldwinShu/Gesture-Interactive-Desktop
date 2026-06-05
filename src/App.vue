@@ -342,6 +342,7 @@ onMounted(async () => {
   const CLICK_COOLDOWN = 500;  // 点击冷却时间（毫秒）
   let pointEntryTime = 0;      // Point 悬停开始时间戳
   const POINT_DWELL_MS = 400;  // Point 悬停触发时长（毫秒）
+  let fileTriggered = false;   // 当前 Point 是否已触发打开（防重复）
 
   const draw = async () => {
     if (videoRef.value && canvasRef.value) {
@@ -389,6 +390,7 @@ onMounted(async () => {
       else if (!g.anyPointing) pushActive = false;
       fistCount = 0;
       pointEntryTime = 0;  // 远区重置悬停计时
+      fileTriggered = false;
     }
 
     // （鼠标操作功能已取消）
@@ -413,24 +415,26 @@ onMounted(async () => {
       // 展开层操作：Point 悬停=打开文件，握拳长按>8帧=返回
       if (expandedKey.value) {
         if (g.anyPointing) {
-          // Point 保持 → 悬停 400ms 后打开居中文件
-          if (pointEntryTime === 0) {
+          // Point 保持 → 悬停 400ms 后打开居中文件（每次松开重新 Point 才可再次触发）
+          if (pointEntryTime === 0 && !fileTriggered) {
             pointEntryTime = Date.now();
             gestureHint.value = '👉 悬停打开...';
             setTimeout(() => { if (gestureHint.value === '👉 悬停打开...') gestureHint.value = ''; }, POINT_DWELL_MS + 200);
-          } else if (Date.now() - pointEntryTime >= POINT_DWELL_MS) {
+          } else if (Date.now() - pointEntryTime >= POINT_DWELL_MS && !fileTriggered) {
             const now = Date.now();
             if (now - lastClickTime >= CLICK_COOLDOWN && expandedCardTransforms.value.length > 0) {
               lastClickTime = now;
+              fileTriggered = true;  // 锁定，防止重复触发
               const centerIdx = Math.floor(expandedCardTransforms.value.length / 2);
               const card = expandedCardTransforms.value[centerIdx];
               if (card?.item?.path) { openFile(card.item.path); gestureHint.value = '🚀'; setTimeout(() => gestureHint.value = '', 300); }
             }
-            pointEntryTime = 0; // 触发后重置
           }
           fistCount = 0;
         } else if (g.anyFist) {
-          // 握拳 → 返回
+          // 握拳 → 返回（也重置 Point 状态）
+          pointEntryTime = 0;
+          fileTriggered = false;
           fistCount++;
           if (fistCount > 8) {
             const now = Date.now();
@@ -440,10 +444,10 @@ onMounted(async () => {
             }
             fistCount = 0;
           }
-          pointEntryTime = 0;
         } else {
-          // 非 Point 非 Fist → 重置状态
+          // 非 Point 非 Fist → 重置状态，允许下次重新触发
           pointEntryTime = 0;
+          fileTriggered = false;
           fistCount = 0;
         }
       } else {
