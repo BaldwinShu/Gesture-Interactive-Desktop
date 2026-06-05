@@ -779,7 +779,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // 窗口创建后延时置底（确保 JS 端重试失败时也能生效）
-            let handle = app.handle().clone();
+            let _handle = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(1500));
                 let my_pid = std::process::id();
