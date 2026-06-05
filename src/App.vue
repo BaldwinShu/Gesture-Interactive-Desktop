@@ -331,6 +331,8 @@ onMounted(async () => {
   let mouseWasDown = false;
   let _mouseClickFlash = 0;
   let _thumbBentFrames = 0;  // 拇指弯曲稳定帧计数器
+  let lastClickTime = 0;       // 上次点击触发时间戳
+  const CLICK_COOLDOWN = 500;  // 点击冷却时间（毫秒）
 
   const draw = async () => {
     if (videoRef.value && canvasRef.value) {
@@ -385,26 +387,37 @@ onMounted(async () => {
     if (isNear) {
       gestureSwipeActive = false;
 
-      // 打开：远区保持 point → 进入近区时 point 还在
+      // 打开：远区保持 point → 进入近区时 point 还在（0.5秒冷却）
       if (pushActive && g.anyPointing) {
         pushActive = false;
-        if (!expandedKey.value) {
-          // 第一层 → 展开分类
-          const ci = cardTransforms.value.findIndex((c: any) => c.z >= 90);
-          const t = cardTransforms.value[ci >= 0 ? ci : Math.floor(cardTransforms.value.length/2)];
-          if (t) { expandGroup(t.key); gestureHint.value = '📂'; setTimeout(() => { if (gestureHint.value === '📂') gestureHint.value = ''; }, 500); }
-        } else if (expandedCardTransforms.value.length > 0) {
-          // 第二层 → 打开居中文件/快捷方式
-          const centerIdx = Math.floor(expandedCardTransforms.value.length / 2);
-          const card = expandedCardTransforms.value[centerIdx];
-          if (card?.item?.path) { openFile(card.item.path); gestureHint.value = '🚀'; setTimeout(() => gestureHint.value = '', 300); }
+        const now = Date.now();
+        if (now - lastClickTime >= CLICK_COOLDOWN) {
+          lastClickTime = now;
+          if (!expandedKey.value) {
+            // 第一层 → 展开分类
+            const ci = cardTransforms.value.findIndex((c: any) => c.z >= 90);
+            const t = cardTransforms.value[ci >= 0 ? ci : Math.floor(cardTransforms.value.length/2)];
+            if (t) { expandGroup(t.key); gestureHint.value = '📂'; setTimeout(() => { if (gestureHint.value === '📂') gestureHint.value = ''; }, 500); }
+          } else if (expandedCardTransforms.value.length > 0) {
+            // 第二层 → 打开居中文件/快捷方式
+            const centerIdx = Math.floor(expandedCardTransforms.value.length / 2);
+            const card = expandedCardTransforms.value[centerIdx];
+            if (card?.item?.path) { openFile(card.item.path); gestureHint.value = '🚀'; setTimeout(() => gestureHint.value = '', 300); }
+          }
         }
       }
 
-      // 关闭：展开层握拳
+      // 关闭：展开层握拳（0.5秒冷却）
       if (expandedKey.value && g.anyFist) {
         fistCount++;
-        if (fistCount > 8) { collapseGroup(); gestureHint.value = '🔙'; setTimeout(() => gestureHint.value = '', 400); fistCount = 0; }
+        if (fistCount > 8) {
+          const now = Date.now();
+          if (now - lastClickTime >= CLICK_COOLDOWN) {
+            lastClickTime = now;
+            collapseGroup(); gestureHint.value = '🔙'; setTimeout(() => gestureHint.value = '', 400);
+          }
+          fistCount = 0;
+        }
       } else { fistCount = Math.max(0, fistCount - 1); }
 
       if (!g.anyPointing && !g.anyFist) pushActive = false;
