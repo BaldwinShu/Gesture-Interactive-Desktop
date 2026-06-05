@@ -340,6 +340,8 @@ onMounted(async () => {
   let _thumbBentFrames = 0;  // 拇指弯曲稳定帧计数器
   let lastClickTime = 0;       // 上次点击触发时间戳
   const CLICK_COOLDOWN = 500;  // 点击冷却时间（毫秒）
+  let pointEntryTime = 0;      // Point 悬停开始时间戳
+  const POINT_DWELL_MS = 400;  // Point 悬停触发时长（毫秒）
 
   const draw = async () => {
     if (videoRef.value && canvasRef.value) {
@@ -386,6 +388,7 @@ onMounted(async () => {
       if (g.anyPointing) pushActive = true;
       else if (!g.anyPointing) pushActive = false;
       fistCount = 0;
+      pointEntryTime = 0;  // 远区重置悬停计时
     }
 
     // （鼠标操作功能已取消）
@@ -407,11 +410,28 @@ onMounted(async () => {
         }
       }
 
-      // 展开层操作：握拳短按=打开文件，长按>8帧=返回
+      // 展开层操作：Point 悬停=打开文件，握拳长按>8帧=返回
       if (expandedKey.value) {
-        if (g.anyFist) {
+        if (g.anyPointing) {
+          // Point 保持 → 悬停 400ms 后打开居中文件
+          if (pointEntryTime === 0) {
+            pointEntryTime = Date.now();
+            gestureHint.value = '👉 悬停打开...';
+            setTimeout(() => { if (gestureHint.value === '👉 悬停打开...') gestureHint.value = ''; }, POINT_DWELL_MS + 200);
+          } else if (Date.now() - pointEntryTime >= POINT_DWELL_MS) {
+            const now = Date.now();
+            if (now - lastClickTime >= CLICK_COOLDOWN && expandedCardTransforms.value.length > 0) {
+              lastClickTime = now;
+              const centerIdx = Math.floor(expandedCardTransforms.value.length / 2);
+              const card = expandedCardTransforms.value[centerIdx];
+              if (card?.item?.path) { openFile(card.item.path); gestureHint.value = '🚀'; setTimeout(() => gestureHint.value = '', 300); }
+            }
+            pointEntryTime = 0; // 触发后重置
+          }
+          fistCount = 0;
+        } else if (g.anyFist) {
+          // 握拳 → 返回
           fistCount++;
-          // 长按握拳 → 返回
           if (fistCount > 8) {
             const now = Date.now();
             if (now - lastClickTime >= CLICK_COOLDOWN) {
@@ -420,17 +440,10 @@ onMounted(async () => {
             }
             fistCount = 0;
           }
+          pointEntryTime = 0;
         } else {
-          // 松开握拳（短按 2~8 帧）→ 打开居中文件
-          if (fistCount >= 2 && fistCount <= 8 && expandedCardTransforms.value.length > 0) {
-            const now = Date.now();
-            if (now - lastClickTime >= CLICK_COOLDOWN) {
-              lastClickTime = now;
-              const centerIdx = Math.floor(expandedCardTransforms.value.length / 2);
-              const card = expandedCardTransforms.value[centerIdx];
-              if (card?.item?.path) { openFile(card.item.path); gestureHint.value = '🚀'; setTimeout(() => gestureHint.value = '', 300); }
-            }
-          }
+          // 非 Point 非 Fist → 重置状态
+          pointEntryTime = 0;
           fistCount = 0;
         }
       } else {
