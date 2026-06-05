@@ -777,6 +777,31 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            // 窗口创建后延时置底（确保 JS 端重试失败时也能生效）
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(1500));
+                let my_pid = std::process::id();
+                unsafe {
+                    let windows = enumerate_windows();
+                    for hwnd in windows {
+                        let mut pid: u32 = 0;
+                        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                        if pid == my_pid {
+                            let _ = SetWindowPos(
+                                hwnd,
+                                HWND(1isize as *mut _), // HWND_BOTTOM
+                                0, 0, 0, 0,
+                                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE,
+                            );
+                            break;
+                        }
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             get_desktop_items,

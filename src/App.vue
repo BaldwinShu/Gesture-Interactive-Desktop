@@ -278,7 +278,14 @@ let unlisten: () => void;
 // ---- 挂载 ----
 onMounted(async () => {
   try { await invoke('hide_desktop_icons'); } catch {}
-  try { await invoke('move_self_to_bottom'); } catch {}
+  // 窗口置底（重试 5 次，等待窗口创建完成）
+  const setWindowBottom = async () => {
+    for (let i = 0; i < 5; i++) {
+      try { await invoke('move_self_to_bottom'); return; }
+      catch { await new Promise(r => setTimeout(r, 500)); }
+    }
+  };
+  setWindowBottom();
   loadUsername();
   updateTime(); timeInterval = setInterval(updateTime, 1000);
   await loadDesktop();
@@ -387,38 +394,49 @@ onMounted(async () => {
     if (isNear) {
       gestureSwipeActive = false;
 
-      // 打开：远区保持 point → 进入近区时 point 还在（0.5秒冷却）
-      if (pushActive && g.anyPointing) {
+      // 打开分类：远区保持 point → 进入近区时 point 还在（仅第一层，0.5秒冷却）
+      if (pushActive && g.anyPointing && !expandedKey.value) {
         pushActive = false;
         const now = Date.now();
         if (now - lastClickTime >= CLICK_COOLDOWN) {
           lastClickTime = now;
-          if (!expandedKey.value) {
-            // 第一层 → 展开分类
-            const ci = cardTransforms.value.findIndex((c: any) => c.z >= 90);
-            const t = cardTransforms.value[ci >= 0 ? ci : Math.floor(cardTransforms.value.length/2)];
-            if (t) { expandGroup(t.key); gestureHint.value = '📂'; setTimeout(() => { if (gestureHint.value === '📂') gestureHint.value = ''; }, 500); }
-          } else if (expandedCardTransforms.value.length > 0) {
-            // 第二层 → 打开居中文件/快捷方式
-            const centerIdx = Math.floor(expandedCardTransforms.value.length / 2);
-            const card = expandedCardTransforms.value[centerIdx];
-            if (card?.item?.path) { openFile(card.item.path); gestureHint.value = '🚀'; setTimeout(() => gestureHint.value = '', 300); }
-          }
+          // 第一层 → 展开分类
+          const ci = cardTransforms.value.findIndex((c: any) => c.z >= 90);
+          const t = cardTransforms.value[ci >= 0 ? ci : Math.floor(cardTransforms.value.length/2)];
+          if (t) { expandGroup(t.key); gestureHint.value = '📂'; setTimeout(() => { if (gestureHint.value === '📂') gestureHint.value = ''; }, 500); }
         }
       }
 
-      // 关闭：展开层握拳（0.5秒冷却）
-      if (expandedKey.value && g.anyFist) {
-        fistCount++;
-        if (fistCount > 8) {
-          const now = Date.now();
-          if (now - lastClickTime >= CLICK_COOLDOWN) {
-            lastClickTime = now;
-            collapseGroup(); gestureHint.value = '🔙'; setTimeout(() => gestureHint.value = '', 400);
+      // 展开层操作：握拳短按=打开文件，长按>8帧=返回
+      if (expandedKey.value) {
+        if (g.anyFist) {
+          fistCount++;
+          // 长按握拳 → 返回
+          if (fistCount > 8) {
+            const now = Date.now();
+            if (now - lastClickTime >= CLICK_COOLDOWN) {
+              lastClickTime = now;
+              collapseGroup(); gestureHint.value = '🔙'; setTimeout(() => gestureHint.value = '', 400);
+            }
+            fistCount = 0;
+          }
+        } else {
+          // 松开握拳（短按 2~8 帧）→ 打开居中文件
+          if (fistCount >= 2 && fistCount <= 8 && expandedCardTransforms.value.length > 0) {
+            const now = Date.now();
+            if (now - lastClickTime >= CLICK_COOLDOWN) {
+              lastClickTime = now;
+              const centerIdx = Math.floor(expandedCardTransforms.value.length / 2);
+              const card = expandedCardTransforms.value[centerIdx];
+              if (card?.item?.path) { openFile(card.item.path); gestureHint.value = '🚀'; setTimeout(() => gestureHint.value = '', 300); }
+            }
           }
           fistCount = 0;
         }
-      } else { fistCount = Math.max(0, fistCount - 1); }
+      } else {
+        // 非展开层：握拳帧衰减
+        if (!g.anyFist) fistCount = Math.max(0, fistCount - 1);
+      }
 
       if (!g.anyPointing && !g.anyFist) pushActive = false;
     }
